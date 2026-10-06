@@ -1,12 +1,11 @@
-name: Build AX3600 qosmio 24.10-nss(Release基线)
+name: Build AX3600 qosmio 24.10-nss(大分区)
 on:
-  workflow_dispatch: #仅手动触发，不自动编译
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      # 4G swap，放在/home/runner规避根目录占用报错
       - name: Create 4G Swap
         run: |
           sudo dd if=/dev/zero of=/home/runner/swapfile bs=1M count=4096
@@ -14,76 +13,78 @@ jobs:
           sudo mkswap /home/runner/swapfile
           sudo swapon /home/runner/swapfile
           free -h
-      
-      # 删除编译补丁报错
-      - name: Remove conflicting bonding patch
-        run: |
-          rm -f ./target/linux/qualcommax/patches-6.6/0600-4-qca-nss-ecm-support-net-bonding-over-LAG-interface.patch
-          echo "已删除 LAG 补丁"
-          
-      # 拉取当前仓库 24.10-nss release基线源码
+
       - name: Checkout source
         uses: actions/checkout@v4
         with:
           ref: 24.10-nss
 
-      # 安装编译依赖
+      # 删除冲突bonding补丁
+      - name: Remove conflicting bonding patch
+        run: |
+          rm -f ./target/linux/qualcommax/patches-6.6/0600-4-qca-nss-ecm-support-net-bonding-over-LAG-interface.patch
+          echo "✅ 已删除 LAG bonding冲突补丁"
+
       - name: Install dependencies
         run: |
           sudo apt update
           sudo apt install -y build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses-dev libssl-dev python3 python3-pip python3-setuptools python3-dev rsync unzip wget zlib1g-dev
 
-      # 更新feeds
       - name: Update feeds
         run: |
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      # .config：AX3600，NSS+EDMA，关闭nftables，关闭SFE，luci+turboacc
       - name: Generate .config
         run: |
           echo "CONFIG_TARGET_qualcommax=y" > .config
           echo "CONFIG_TARGET_qualcommax_ipq807x=y" >> .config
           echo "CONFIG_TARGET_MULTI_PROFILE=y" >> .config
-          echo "CONFIG_TARGET_DEVICE_qualcommax_ipq807x_xiaomi_ax3600=y" >> .config
-          # NSS EDMA核心驱动
+          # ==========【恢复正确目标：stock 就是qosmio仓库的大分区固件】 ==========
+          echo "CONFIG_TARGET_DEVICE_qualcommax_ipq807x_xiaomi_ax3600-stock=y" >> .config
+
+          # NSS 核心（DP，不启用EDMA）
           echo "CONFIG_PACKAGE_kmod-qca-nss-drv=y" >> .config
           echo "CONFIG_PACKAGE_kmod-qca-nss-ecm=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-qca-nss-ecm-nat=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-qca-nss-ecm-pppoe=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-qca-nss-edma=y" >> .config
           echo "CONFIG_PACKAGE_kmod-qca-nss-dp=y" >> .config
           echo "CONFIG_PACKAGE_kmod-qca-nss-clients=y" >> .config
           echo "CONFIG_PACKAGE_kmod-qca-nss-gmac=y" >> .config
           echo "CONFIG_PACKAGE_nss-firmware-ipq8074=y" >> .config
-          # Wifi ath11k
+
+          # WiFi ath11k
           echo "CONFIG_PACKAGE_kmod-ath11k=y" >> .config
           echo "CONFIG_PACKAGE_ath11k-firmware-ipq8074=y" >> .config
           echo "CONFIG_PACKAGE_wpad-full=y" >> .config
-          # Luci + turboacc
+
+          # LuCI中文基础面板
           echo "CONFIG_PACKAGE_luci=y" >> .config
           echo "CONFIG_PACKAGE_luci-base=y" >> .config
           echo "CONFIG_PACKAGE_luci-mod-admin-full=y" >> .config
           echo "CONFIG_PACKAGE_luci-theme-bootstrap=y" >> .config
-          echo "CONFIG_PACKAGE_luci-app-turboacc=y" >> .config
-          # 网络组件：iptables legacy，禁用nftables
+          echo "CONFIG_PACKAGE_luci-app-firewall=y" >> .config
+          echo "CONFIG_PACKAGE_luci-i18n-base-zh-cn=y" >> .config
+          echo "CONFIG_PACKAGE_luci-i18n-firewall-zh-cn=y" >> .config
+
+          # 基础网络组件
           echo "CONFIG_PACKAGE_pppoe-diagnostic=y" >> .config
-          echo "CONFIG_PACKAGE_iptables-legacy=y" >> .config
-          echo "# CONFIG_PACKAGE_nftables is not set" >> .config
           echo "CONFIG_PACKAGE_dnsmasq-full=y" >> .config
           echo "CONFIG_PACKAGE_dropbear=y" >> .config
-          # 不启用SFE，只用NSS硬件卸载
+
+          # 禁用SFE
           echo "# CONFIG_PACKAGE_kmod-shortcut-fe is not set" >> .config
           echo "# CONFIG_PACKAGE_kmod-shortcut-fe-cm is not set" >> .config
-          make defconfig
 
-      # 编译 -j1 单线程，防止github runner OOM
+          make defconfig
+          # 二次强制禁用SFE，防止defconfig自动打开
+          sed -i 's/CONFIG_PACKAGE_kmod-shortcut-fe=y/# CONFIG_PACKAGE_kmod-shortcut-fe is not set/g' .config
+          sed -i 's/CONFIG_PACKAGE_kmod-shortcut-fe-cm=y/# CONFIG_PACKAGE_kmod-shortcut-fe-cm is not set/g' .config
+
       - name: Compile firmware
         run: make -j1 V=s
 
-      # 上传固件成品
       - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
-          name: AX3600-qosmio-24.10-release-nss
-          path: bin/targets/qualcommax/ipq807x/openwrt-qualcommax-ipq807x-xiaomi_ax3600-squashfs-nand-sysupgrade.bin
+          name: AX3600-qosmio-24.10-nss-BIGPART
+          # stock对应的固件文件名
+          path: bin/targets/qualcommax/ipq807x/openwrt-qualcommax-ipq807x-xiaomi_ax3600-stock-squashfs-sysupgrade.bin
