@@ -14,7 +14,13 @@ jobs:
           sudo mkswap /home/runner/swapfile
           sudo swapon /home/runner/swapfile
           free -h
-
+      
+      # 删除编译补丁报错
+      - name: Remove conflicting bonding patch
+        run: |
+          rm -f ./target/linux/qualcommax/patches-6.6/0600-4-qca-nss-ecm-support-net-bonding-over-LAG-interface.patch
+          echo "已删除 LAG 补丁"
+          
       # 拉取当前仓库 24.10-nss release基线源码
       - name: Checkout source
         uses: actions/checkout@v4
