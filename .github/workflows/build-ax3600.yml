@@ -43,6 +43,11 @@ jobs:
           ls -l *bond* || true
           echo "✅ 已移除会报错的bonding补丁"
 
+      # 预校验内核补丁，提前捕获patch错误，不用等到编译后半段
+      - name: Pre-check kernel patches
+        run: |
+          ./scripts/patch-kernel target/linux/qualcommax
+          
       # ========= 添加 iStore feed源 =========
       - name: Add iStore feed source
         run: |
