@@ -1,9 +1,0 @@
-name: TEST-2410
-on:
-  workflow_dispatch:
-jobs:
-  test:
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Simple Test
-        run: echo "Workflow loaded successfully"
