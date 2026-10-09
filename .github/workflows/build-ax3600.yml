@@ -1,4 +1,4 @@
-name: Build AX3600 qosmio 24.10-nss stock iStore
+name: Build AX3600 qosmio main-nss stock iStore
 
 on:
   workflow_dispatch: # 仅手动触发
@@ -31,21 +31,6 @@ jobs:
           key: qosmio-2410-nss-${{ hashFiles('**/*.yml') }}
           restore-keys: |
             qosmio-2410-nss-
-
-      # 删除6.12内核下的bonding/LAG冲突补丁
-      - name: Remove conflicting bonding patch
-        run: |
-          cd target/linux/qualcommax/patches-6.12
-          pwd
-          ls -l *.patch | grep 0060
-          rm -f 0060-*-qca-nss-ecm-support-net-bonding*.patch
-          echo "===== 删除后，检查剩余0060补丁 ====="
-          ls -l *.patch | grep 0060 || echo "✅ 0060 bonding补丁全部移除"
-
-      # 预校验内核补丁，补丁失败直接终止，不进入长时间编译
-      - name: Pre-check kernel patches
-        run: |
-          ./scripts/patch-kernel target/linux/qualcommax
           
       # ========= 添加 iStore feed源 =========
       - name: Add iStore feed source
