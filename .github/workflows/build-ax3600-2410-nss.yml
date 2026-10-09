@@ -1,6 +1,8 @@
 name: Build AX3600 Qosmio 24.10-nss BIGPART NSS+iStore
 on:
-  workflow_dispatch: # 仅手动触发
+  workflow_dispatch: # 仅手动点击触发
+  push:
+    branches: [ "never-exist-branch" ] # 永远不会命中，禁止push自动触发
 
 jobs:
   build:
