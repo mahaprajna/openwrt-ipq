@@ -24,13 +24,9 @@ jobs:
       - name: Remove conflicting bonding patch
         run: |
           rm -f ./target/linux/qualcommax/patches-6.6/*ecm-support-net-bonding*.patch
-          echo "✅ 已删除 net bonding 冲突补丁"
-
-      # 删除冲突的 bonding 补丁（必须在 checkout 之后）
-      - name: Remove conflicting bonding patch
-        run: |
+          rm -f ./target/linux/qualcommax/patches-6.6/*qca-nss-ecm-support-net-bonding-over-LAG*.patch
           rm -f ./target/linux/qualcommax/patches-6.6/0600-4-qca-nss-ecm-support-net-bonding-over-LAG-interface.patch
-          echo "✅ 已删除 LAG bonding 冲突补丁"
+          echo "✅ 已删除 bonding 冲突补丁"
 
       - name: Install dependencies
         run: |
