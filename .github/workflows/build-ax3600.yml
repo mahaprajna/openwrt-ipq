@@ -32,16 +32,16 @@ jobs:
           restore-keys: |
             qosmio-2410-nss-
 
-      # 删除冲突 bonding/LAG 补丁
+      # 删除冲突 bonding/LAG 补丁，解决patch hunk失败
       - name: Remove conflicting bonding patch
         run: |
           cd target/linux/qualcommax/patches-6.6
           ls -l *bond* || true
+          rm -f 0060-3-qca-nss-ecm-support-net-bonding-over-LAG-interface.patch
           rm -f *ecm-support-net-bonding*.patch
           rm -f *qca-nss-ecm-support-net-bonding-over-LAG*.patch
-          rm -f 0600-4-qca-nss-ecm-support-net-bonding-over-LAG-interface.patch
           ls -l *bond* || true
-          echo "✅ 已删除 bonding 冲突补丁"
+          echo "✅ 已移除会报错的bonding补丁"
 
       # ========= 添加 iStore feed源 =========
       - name: Add iStore feed source
