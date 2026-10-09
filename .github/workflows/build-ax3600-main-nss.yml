@@ -1,7 +1,9 @@
-name: Build AX3600 qosmio main-nss stock iStore
-
+name: Build AX3600 Qosmio 2410-nss BIGPART NSS+iStore
 on:
-  workflow_dispatch: # 仅手动触发
+  workflow_dispatch: # 只能手动点击Run workflow启动
+  push:
+    branches: [] # 空数组，push提交文件不会触发本workflow
+
 
 jobs:
   build:
@@ -17,8 +19,111 @@ jobs:
 
       - name: Checkout source
         uses: actions/checkout@v4
-        with:
-          ref: 24.10-nss
+
+      - name: Inject AX3600 BigPart Device + DTS
+        run: |
+          # 追加bigpart设备定义到 ipq807x.mk
+          cat >> target/linux/qualcommax/image/ipq807x.mk <<'EOF'
+define Device/xiaomi_ax3600-bigpart
+  DEVICE_VENDOR := Xiaomi
+  DEVICE_MODEL := AX3600 (BigPart)
+  DEVICE_DTS := ipq8074-xiaomi-ax3600-bigpart
+  DEVICE_DTS_DIR := ../dts/qcom
+  SOC := ipq8074
+  UBINIZE_OPTS := -E 5
+  BLOCKSIZE := 128k
+  PAGESIZE := 2048
+  SUBPAGESIZE := 512
+  IMAGE_SIZE := 20480k
+  IMAGES := factory.ubi sysupgrade.bin
+  IMAGE/factory.ubi := append-ubi
+  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
+endef
+TARGET_DEVICES += xiaomi_ax3600-bigpart
+EOF
+
+          # 写入大分区DTS文件（224MB rootfs，恩山主流大分区uboot布局）
+          mkdir -p target/linux/qualcommax/dts/qcom
+          cat > target/linux/qualcommax/dts/qcom/ipq8074-xiaomi-ax3600-bigpart.dts <<'EOT'
+// SPDX-License-Identifier: GPL-2.0-or-later
+#include "ipq8074.dtsi"
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
+
+/ {
+	model = "Xiaomi AX3600 BigPart";
+	compatible = "xiaomi,ax3600", "qcom,ipq8074";
+
+	aliases {
+		serial0 = &blsp1_uart2;
+		led-boot = &led_system;
+		led-failsafe = &led_system;
+		led-running = &led_system;
+		led-upgrade = &led_system;
+	};
+
+	chosen {
+		bootargs = "ubi.mtd=rootfs root=ubi0:rootfs rootfstype=ubifs";
+	};
+
+	leds {
+		compatible = "gpio-leds";
+		led_system: system {
+			label = "blue:system";
+			gpios = <&tlmm 24 GPIO_ACTIVE_HIGH>;
+		};
+	};
+};
+
+&nand {
+	status = "okay";
+	pinctrl-0 = <&nand_pins>;
+	pinctrl-names = "default";
+
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		partition@0 {
+			label = "uboot";
+			reg = <0x00000000 0x00080000>;
+			read-only;
+		};
+		partition@80000 {
+			label = "uboot-env";
+			reg = <0x00080000 0x00080000>;
+		};
+		partition@100000 {
+			label = "kernel";
+			reg = <0x00100000 0x00100000>;
+		};
+		partition@200000 {
+			label = "rootfs";
+			reg = <0x00200000 0x00E000000>;
+		};
+	};
+};
+
+&blsp1_uart2 {
+	status = "okay";
+	pinctrl-0 = <&blsp1_uart2_pins>;
+	pinctrl-names = "default";
+};
+
+&wifi0 {
+	status = "okay";
+	qcom,ath11k-calibration-variant = "XIAOMI_AX3600";
+};
+&wifi1 {
+	status = "okay";
+	qcom,ath11k-calibration-variant = "XIAOMI_AX3600";
+};
+&wifi2 {
+	status = "okay";
+	qcom,ath11k-calibration-variant = "XIAOMI_AX3600";
+};
+EOT
 
       - name: Cache OpenWrt build
         uses: actions/cache@v4
@@ -27,12 +132,11 @@ jobs:
             dl
             build_dir
             staging_dir
-          # 修改这里：匹配仓库内所有yml文件
-          key: qosmio-2410-nss-${{ hashFiles('**/*.yml') }}
+            tmp
+          key: qosmio-2410nss-bigpart-${{ github.sha }}
           restore-keys: |
-            qosmio-2410-nss-
-          
-      # ========= 添加 iStore feed源 =========
+            qosmio-2410nss-bigpart-
+
       - name: Add iStore feed source
         run: |
           echo 'src-git istore https://github.com/linkease/istore;main' >> feeds.conf.default
@@ -43,42 +147,42 @@ jobs:
           sudo apt update
           sudo apt install -y build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses-dev libssl-dev python3 python3-pip python3-setuptools python3-dev rsync unzip wget zlib1g-dev
 
-      - name: Update feeds
+      - name: Update feeds & install feeds
         run: |
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
       - name: Generate .config
         run: |
-          # ========== 目标平台【qosmio 大分区为 -stock】 ==========
+          rm -f .config
+          make defconfig
+          # 目标设备：xiaomi_ax3600-bigpart
           echo "CONFIG_TARGET_qualcommax=y" > .config
           echo "CONFIG_TARGET_qualcommax_ipq807x=y" >> .config
           echo "CONFIG_TARGET_MULTI_PROFILE=y" >> .config
-          echo "CONFIG_TARGET_DEVICE_qualcommax_ipq807x_xiaomi_ax3600-stock=y" >> .config
+          echo "CONFIG_TARGET_DEVICE_qualcommax_ipq807x_xiaomi_ax3600_bigpart=y" >> .config
 
-          # ========== NSS 核心驱动完整套件 ==========
+          # NSS 全套核心驱动
           echo "CONFIG_PACKAGE_kmod-qca-nss-drv=y" >> .config
           echo "CONFIG_PACKAGE_kmod-qca-nss-ecm=y" >> .config
           echo "CONFIG_PACKAGE_kmod-qca-nss-dp=y" >> .config
           echo "CONFIG_PACKAGE_kmod-qca-nss-clients=y" >> .config
           echo "CONFIG_PACKAGE_kmod-qca-nss-gmac=y" >> .config
           echo "CONFIG_PACKAGE_nss-firmware-ipq8074=y" >> .config
-
-          # NSS附加模块
           echo "CONFIG_PACKAGE_kmod-qca-nss-drv-bridge-mgr=y" >> .config
           echo "CONFIG_PACKAGE_kmod-qca-nss-drv-vlan-mgr=y" >> .config
           echo "CONFIG_PACKAGE_kmod-qca-nss-drv-igs=y" >> .config
           echo "CONFIG_PACKAGE_kmod-qca-nss-drv-qdisc=y" >> .config
           echo "CONFIG_PACKAGE_kmod-qca-ssdk=y" >> .config
 
-          # ========== WiFi ath11k ==========
+          # WiFi ath11k
           echo "CONFIG_PACKAGE_kmod-ath11k=y" >> .config
           echo "CONFIG_PACKAGE_kmod-ath11k-ahb=y" >> .config
           echo "CONFIG_PACKAGE_ath11k-firmware-ipq8074=y" >> .config
           echo "CONFIG_PACKAGE_ipq-wifi-xiaomi_ax3600=y" >> .config
           echo "CONFIG_PACKAGE_wpad-full=y" >> .config
 
-          # ========== LuCI基础 + 中文 ==========
+          # LuCI + 中文
           echo "CONFIG_PACKAGE_luci=y" >> .config
           echo "CONFIG_PACKAGE_luci-base=y" >> .config
           echo "CONFIG_PACKAGE_luci-mod-admin-full=y" >> .config
@@ -89,61 +193,59 @@ jobs:
           echo "CONFIG_PACKAGE_luci-app-package-manager=y" >> .config
           echo "CONFIG_PACKAGE_luci-i18n-package-manager-zh-cn=y" >> .config
 
-          # ========== SQM‑NSS硬件限速 ==========
+          # SQM-NSS 硬件Qos
           echo "CONFIG_PACKAGE_sqm-scripts-nss=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-sqm=y" >> .config
           echo "CONFIG_PACKAGE_luci-i18n-sqm-zh-cn=y" >> .config
 
-          # ========== 流量监控工具 ==========
+          # 流量监控
           echo "CONFIG_PACKAGE_luci-app-nlbwmon=y" >> .config
           echo "CONFIG_PACKAGE_luci-i18n-nlbwmon-zh-cn=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-statistics=y" >> .config
           echo "CONFIG_PACKAGE_luci-i18n-statistics-zh-cn=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-watchcat=y" >> .config
 
-          # ========== 基础网络组件 ==========
+          # 基础网络组件
           echo "CONFIG_PACKAGE_pppoe-diagnostic=y" >> .config
           echo "CONFIG_PACKAGE_dnsmasq-full=y" >> .config
           echo "CONFIG_PACKAGE_dropbear=y" >> .config
           echo "CONFIG_PACKAGE_curl=y" >> .config
-          echo "CONFIG_PACKAGE_wget-ssl=y" >> .config
+          echo "CONFIG_PACKAGE_wget=y" >> .config
           echo "CONFIG_PACKAGE_openssh-sftp-server=y" >> .config
 
-          # ========== 网络诊断工具 ==========
+          # 调试工具
           echo "CONFIG_PACKAGE_iperf3=y" >> .config
           echo "CONFIG_PACKAGE_htop=y" >> .config
           echo "CONFIG_PACKAGE_tcpdump=y" >> .config
 
-          # ========== iStore商店及全部依赖 ==========
+          # iStore
           echo "CONFIG_PACKAGE_luci-app-store=y" >> .config
           echo "CONFIG_PACKAGE_taskd=y" >> .config
           echo "CONFIG_PACKAGE_luci-lib-taskd=y" >> .config
           echo "CONFIG_PACKAGE_luci-lib-xterm=y" >> .config
           echo "CONFIG_PACKAGE_luci-compat=y" >> .config
 
-          # ========== 禁用SFE（NSS硬件加速互斥） ==========
+          # 禁用SFE（NSS冲突，必须关闭）
+          sed -i '/CONFIG_PACKAGE_kmod-shortcut-fe/d' .config
+          sed -i '/CONFIG_PACKAGE_kmod-shortcut-fe-cm/d' .config
           echo "# CONFIG_PACKAGE_kmod-shortcut-fe is not set" >> .config
           echo "# CONFIG_PACKAGE_kmod-shortcut-fe-cm is not set" >> .config
 
-          make defconfig
+          make olddefconfig
 
-          # 二次强制关闭SFE
-          sed -i 's/CONFIG_PACKAGE_kmod-shortcut-fe=y/# CONFIG_PACKAGE_kmod-shortcut-fe is not set/g' .config
-          sed -i 's/CONFIG_PACKAGE_kmod-shortcut-fe-cm=y/# CONFIG_PACKAGE_kmod-shortcut-fe-cm is not set/g' .config
-
-      - name: Print key config for verification
+      - name: Print key config verification
         run: |
-          echo "===== 关键配置核对 ====="
+          echo "===== 校验TARGET与NSS配置 ====="
           grep -E "CONFIG_TARGET_DEVICE|kmod-qca-nss|shortcut-fe|luci-app-store" .config
 
-      # 编译：-j2 并行编译，4Gswap兜底防OOM
       - name: Compile firmware
-        run: make -j2 V=s
+        run: |
+          make -j2 V=s
 
-      - name: Upload firmware
+      - name: Upload firmware artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AX3600-qosmio-24.10-nss-STOCK-iStore
+          name: AX3600-Qosmio-24.10-nss-BIGPART
           path: |
-            bin/targets/qualcommax/ipq807x/openwrt-qualcommax-ipq807x-xiaomi_ax3600-stock-squashfs-sysupgrade.bin
-            bin/targets/qualcommax/ipq807x/openwrt-qualcommax-ipq807x-xiaomi_ax3600-stock-squashfs-factory.ubi
+            bin/targets/qualcommax/ipq807x/openwrt-qualcommax-ipq807x-xiaomi_ax3600-bigpart-squashfs-factory.ubi
+            bin/targets/qualcommax/ipq807x/openwrt-qualcommax-ipq807x-xiaomi_ax3600-bigpart-squashfs-sysupgrade.bin
