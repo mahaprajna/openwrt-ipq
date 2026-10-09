@@ -1,9 +1,6 @@
 name: Build AX3600 Qosmio 2410-nss BIGPART NSS+iStore
 on:
-  workflow_dispatch: # 只能手动点击Run workflow启动
-  push:
-    branches: [] # 空数组，push提交文件不会触发本workflow
-
+  workflow_dispatch:
 
 jobs:
   build:
@@ -20,110 +17,14 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Inject AX3600 BigPart Device + DTS
+      # 删除冲突 bonding/LAG 补丁（必须！）
+      - name: Remove conflicting bonding patch
         run: |
-          # 追加bigpart设备定义到 ipq807x.mk
-          cat >> target/linux/qualcommax/image/ipq807x.mk <<'EOF'
-define Device/xiaomi_ax3600-bigpart
-  DEVICE_VENDOR := Xiaomi
-  DEVICE_MODEL := AX3600 (BigPart)
-  DEVICE_DTS := ipq8074-xiaomi-ax3600-bigpart
-  DEVICE_DTS_DIR := ../dts/qcom
-  SOC := ipq8074
-  UBINIZE_OPTS := -E 5
-  BLOCKSIZE := 128k
-  PAGESIZE := 2048
-  SUBPAGESIZE := 512
-  IMAGE_SIZE := 20480k
-  IMAGES := factory.ubi sysupgrade.bin
-  IMAGE/factory.ubi := append-ubi
-  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
-endef
-TARGET_DEVICES += xiaomi_ax3600-bigpart
-EOF
-
-          # 写入大分区DTS文件（224MB rootfs，恩山主流大分区uboot布局）
-          mkdir -p target/linux/qualcommax/dts/qcom
-          cat > target/linux/qualcommax/dts/qcom/ipq8074-xiaomi-ax3600-bigpart.dts <<'EOT'
-// SPDX-License-Identifier: GPL-2.0-or-later
-#include "ipq8074.dtsi"
-#include <dt-bindings/gpio/gpio.h>
-#include <dt-bindings/input/input.h>
-
-/ {
-	model = "Xiaomi AX3600 BigPart";
-	compatible = "xiaomi,ax3600", "qcom,ipq8074";
-
-	aliases {
-		serial0 = &blsp1_uart2;
-		led-boot = &led_system;
-		led-failsafe = &led_system;
-		led-running = &led_system;
-		led-upgrade = &led_system;
-	};
-
-	chosen {
-		bootargs = "ubi.mtd=rootfs root=ubi0:rootfs rootfstype=ubifs";
-	};
-
-	leds {
-		compatible = "gpio-leds";
-		led_system: system {
-			label = "blue:system";
-			gpios = <&tlmm 24 GPIO_ACTIVE_HIGH>;
-		};
-	};
-};
-
-&nand {
-	status = "okay";
-	pinctrl-0 = <&nand_pins>;
-	pinctrl-names = "default";
-
-	partitions {
-		compatible = "fixed-partitions";
-		#address-cells = <1>;
-		#size-cells = <1>;
-
-		partition@0 {
-			label = "uboot";
-			reg = <0x00000000 0x00080000>;
-			read-only;
-		};
-		partition@80000 {
-			label = "uboot-env";
-			reg = <0x00080000 0x00080000>;
-		};
-		partition@100000 {
-			label = "kernel";
-			reg = <0x00100000 0x00100000>;
-		};
-		partition@200000 {
-			label = "rootfs";
-			reg = <0x00200000 0x00E000000>;
-		};
-	};
-};
-
-&blsp1_uart2 {
-	status = "okay";
-	pinctrl-0 = <&blsp1_uart2_pins>;
-	pinctrl-names = "default";
-};
-
-&wifi0 {
-	status = "okay";
-	qcom,ath11k-calibration-variant = "XIAOMI_AX3600";
-};
-&wifi1 {
-	status = "okay";
-	qcom,ath11k-calibration-variant = "XIAOMI_AX3600";
-};
-&wifi2 {
-	status = "okay";
-	qcom,ath11k-calibration-variant = "XIAOMI_AX3600";
-};
-EOT
+          cd target/linux/qualcommax/patches-6.6 || cd target/linux/qualcommax/patches-6.12
+          rm -f *ecm-support-net-bonding*.patch
+          rm -f *qca-nss-ecm-support-net-bonding-over-LAG*.patch
+          rm -f 0600-4-qca-nss-ecm-support-net-bonding-over-LAG-interface.patch
+          echo "✅ 已删除 bonding 冲突补丁"
 
       - name: Cache OpenWrt build
         uses: actions/cache@v4
@@ -132,8 +33,7 @@ EOT
             dl
             build_dir
             staging_dir
-            tmp
-          key: qosmio-2410nss-bigpart-${{ github.sha }}
+          key: qosmio-2410nss-bigpart-${{ hashFiles('**/*.yml') }}
           restore-keys: |
             qosmio-2410nss-bigpart-
 
@@ -154,13 +54,11 @@ EOT
 
       - name: Generate .config
         run: |
-          rm -f .config
-          make defconfig
-          # 目标设备：xiaomi_ax3600-bigpart
+          # ========== 直接使用仓库自带的大分区目标 xiaomi_ax3600 ==========
           echo "CONFIG_TARGET_qualcommax=y" > .config
           echo "CONFIG_TARGET_qualcommax_ipq807x=y" >> .config
           echo "CONFIG_TARGET_MULTI_PROFILE=y" >> .config
-          echo "CONFIG_TARGET_DEVICE_qualcommax_ipq807x_xiaomi_ax3600_bigpart=y" >> .config
+          echo "CONFIG_TARGET_DEVICE_qualcommax_ipq807x_xiaomi_ax3600=y" >> .config
 
           # NSS 全套核心驱动
           echo "CONFIG_PACKAGE_kmod-qca-nss-drv=y" >> .config
@@ -193,7 +91,7 @@ EOT
           echo "CONFIG_PACKAGE_luci-app-package-manager=y" >> .config
           echo "CONFIG_PACKAGE_luci-i18n-package-manager-zh-cn=y" >> .config
 
-          # SQM-NSS 硬件Qos
+          # SQM-NSS
           echo "CONFIG_PACKAGE_sqm-scripts-nss=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-sqm=y" >> .config
           echo "CONFIG_PACKAGE_luci-i18n-sqm-zh-cn=y" >> .config
@@ -210,10 +108,8 @@ EOT
           echo "CONFIG_PACKAGE_dnsmasq-full=y" >> .config
           echo "CONFIG_PACKAGE_dropbear=y" >> .config
           echo "CONFIG_PACKAGE_curl=y" >> .config
-          echo "CONFIG_PACKAGE_wget=y" >> .config
+          echo "CONFIG_PACKAGE_wget-ssl=y" >> .config
           echo "CONFIG_PACKAGE_openssh-sftp-server=y" >> .config
-
-          # 调试工具
           echo "CONFIG_PACKAGE_iperf3=y" >> .config
           echo "CONFIG_PACKAGE_htop=y" >> .config
           echo "CONFIG_PACKAGE_tcpdump=y" >> .config
@@ -225,13 +121,15 @@ EOT
           echo "CONFIG_PACKAGE_luci-lib-xterm=y" >> .config
           echo "CONFIG_PACKAGE_luci-compat=y" >> .config
 
-          # 禁用SFE（NSS冲突，必须关闭）
-          sed -i '/CONFIG_PACKAGE_kmod-shortcut-fe/d' .config
-          sed -i '/CONFIG_PACKAGE_kmod-shortcut-fe-cm/d' .config
+          # 禁用 SFE
           echo "# CONFIG_PACKAGE_kmod-shortcut-fe is not set" >> .config
           echo "# CONFIG_PACKAGE_kmod-shortcut-fe-cm is not set" >> .config
 
-          make olddefconfig
+          make defconfig
+
+          # 二次强制关闭 SFE
+          sed -i 's/CONFIG_PACKAGE_kmod-shortcut-fe=y/# CONFIG_PACKAGE_kmod-shortcut-fe is not set/g' .config
+          sed -i 's/CONFIG_PACKAGE_kmod-shortcut-fe-cm=y/# CONFIG_PACKAGE_kmod-shortcut-fe-cm is not set/g' .config
 
       - name: Print key config verification
         run: |
@@ -239,13 +137,13 @@ EOT
           grep -E "CONFIG_TARGET_DEVICE|kmod-qca-nss|shortcut-fe|luci-app-store" .config
 
       - name: Compile firmware
-        run: |
-          make -j2 V=s
+        run: make -j2 V=s
 
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v4
         with:
           name: AX3600-Qosmio-24.10-nss-BIGPART
+          # 路径使用 xiaomi_ax3600（无 -stock 无 -bigpart）
           path: |
-            bin/targets/qualcommax/ipq807x/openwrt-qualcommax-ipq807x-xiaomi_ax3600-bigpart-squashfs-factory.ubi
-            bin/targets/qualcommax/ipq807x/openwrt-qualcommax-ipq807x-xiaomi_ax3600-bigpart-squashfs-sysupgrade.bin
+            bin/targets/qualcommax/ipq807x/openwrt-qualcommax-ipq807x-xiaomi_ax3600-squashfs-factory.ubi
+            bin/targets/qualcommax/ipq807x/openwrt-qualcommax-ipq807x-xiaomi_ax3600-squashfs-sysupgrade.bin
