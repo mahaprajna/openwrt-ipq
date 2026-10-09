@@ -2,7 +2,7 @@ name: Build AX3600 qosmio 24.10-nss stock iStore
 
 on:
   workflow_dispatch: # 仅手动触发
-
+  
 jobs:
   build:
     runs-on: ubuntu-22.04
