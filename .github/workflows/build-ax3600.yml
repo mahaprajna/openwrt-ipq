@@ -32,18 +32,15 @@ jobs:
           restore-keys: |
             qosmio-2410-nss-
 
-      # 删除冲突 bonding/LAG 补丁，解决patch hunk失败
+    # 删除全部0060 bonding/LAG相关NSS补丁，彻底规避patch hunk失败
       - name: Remove conflicting bonding patch
         run: |
           cd target/linux/qualcommax/patches-6.6
-          ls -l *bond* || true
-          rm -f 0060-3-qca-nss-ecm-support-net-bonding-over-LAG-interface.patch
-          rm -f *ecm-support-net-bonding*.patch
-          rm -f *qca-nss-ecm-support-net-bonding-over-LAG*.patch
-          ls -l *bond* || true
-          echo "✅ 已移除会报错的bonding补丁"
+          rm -f 0060-*-qca-nss-ecm-support-net-bonding*.patch
+          ls -l 0060-*.patch || true
+          echo "✅ 全部0060 bonding/LAG补丁移除完成"
 
-      # 预校验内核补丁，提前捕获patch错误，不用等到编译后半段
+      # 预校验内核补丁，补丁失败直接终止，不进入长时间编译
       - name: Pre-check kernel patches
         run: |
           ./scripts/patch-kernel target/linux/qualcommax
