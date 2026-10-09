@@ -27,12 +27,21 @@ jobs:
             dl
             build_dir
             staging_dir
-          # 修改这里：匹配仓库内所有yml文件
-          key: qosmio-2410-nss-${{ hashFiles('**/*.yml') }}
+          # 仅绑定当前yml，修改其他工作流不会清空缓存
+          key: qosmio-2410-nss-${{ hashFiles('.github/workflows/build-2410-nss-ax3600.yml') }}
           restore-keys: |
             qosmio-2410-nss-
+
+      # 24.10-nss必须：删除ECM bonding冲突补丁，防止编译报错
+      - name: Remove bonding ECM conflict patch
+        run: |
+          cd target/linux/qualcommax/patches-6.6
+          rm -f *ecm-support-net-bonding*.patch
+          rm -f *qca-nss-ecm-support-net-bonding-over-LAG*.patch
+          rm -f 0600-4-qca-nss-ecm-support-net-bonding-over-LAG-interface.patch
+          echo "✅ 24.10-nss：bonding冲突补丁已移除"
           
-      # ========= 添加 iStore feed源 =========
+      # 添加 iStore feed源
       - name: Add iStore feed source
         run: |
           echo 'src-git istore https://github.com/linkease/istore;main' >> feeds.conf.default
@@ -50,7 +59,8 @@ jobs:
 
       - name: Generate .config
         run: |
-          # ========== 目标平台【qosmio 大分区为 -stock】 ==========
+          make defconfig
+          # ========== 目标平台【qosmio stock 原厂A/B小分区】 ==========
           echo "CONFIG_TARGET_qualcommax=y" > .config
           echo "CONFIG_TARGET_qualcommax_ipq807x=y" >> .config
           echo "CONFIG_TARGET_MULTI_PROFILE=y" >> .config
@@ -122,14 +132,12 @@ jobs:
           echo "CONFIG_PACKAGE_luci-compat=y" >> .config
 
           # ========== 禁用SFE（NSS硬件加速互斥） ==========
+          sed -i '/CONFIG_PACKAGE_kmod-shortcut-fe/d' .config
+          sed -i '/CONFIG_PACKAGE_kmod-shortcut-fe-cm/d' .config
           echo "# CONFIG_PACKAGE_kmod-shortcut-fe is not set" >> .config
           echo "# CONFIG_PACKAGE_kmod-shortcut-fe-cm is not set" >> .config
 
-          make defconfig
-
-          # 二次强制关闭SFE
-          sed -i 's/CONFIG_PACKAGE_kmod-shortcut-fe=y/# CONFIG_PACKAGE_kmod-shortcut-fe is not set/g' .config
-          sed -i 's/CONFIG_PACKAGE_kmod-shortcut-fe-cm=y/# CONFIG_PACKAGE_kmod-shortcut-fe-cm is not set/g' .config
+          make olddefconfig
 
       - name: Print key config for verification
         run: |
@@ -146,4 +154,4 @@ jobs:
           name: AX3600-qosmio-24.10-nss-STOCK-iStore
           path: |
             bin/targets/qualcommax/ipq807x/openwrt-qualcommax-ipq807x-xiaomi_ax3600-stock-squashfs-sysupgrade.bin
-            bin/targets/qualcommax/ipq807x/openwrt-qualcommax-ipq807x-xiaomi_ax3600-stock-squashfs-factory.ubi
+            bin/targets/qualcommax/ipq807x/openwrt-qualcommax/ipq807x/openwrt-qualcommax-ipq807x-xiaomi_ax3600-stock-squashfs-factory.ubi
