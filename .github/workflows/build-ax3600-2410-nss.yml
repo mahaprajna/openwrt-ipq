@@ -1,4 +1,4 @@
-name: Build AX3600 Qosmio 24.10-nss NSS+iStore
+name: Build AX3600 Qosmio 24.10-nss BIGPART NSS+iStore
 on:
   workflow_dispatch:
 
@@ -19,18 +19,8 @@ jobs:
         with:
           ref: 24.10-nss
 
-      # 删除冲突 bonding/LAG 补丁（适配多内核版本）
-      - name: Remove conflicting bonding patch
-        run: |
-          cd target/linux/qualcommax/ || true
-          for d in patches-6.1 patches-6.6 patches-6.12; do
-            [ -d "$d" ] && cd "$d" && break
-          done
-          ls -l *bond* 2>/dev/null || true
-          rm -f *ecm-support-net-bonding*.patch
-          rm -f *qca-nss-ecm-support-net-bonding-over-LAG*.patch
-          rm -f 0600-4-qca-nss-ecm-support-net-bonding-over-LAG-interface.patch
-          echo "✅ 已删除 bonding 冲突补丁"
+      # 重要：不注入DTS、不修改ipq807x.mk、不删除bond补丁
+      # 源码内 xiaomi_ax3600 原生就是大分区目标(KERNEL_SIZE=36608k)
 
       - name: Cache OpenWrt build
         uses: actions/cache@v4
@@ -61,13 +51,12 @@ jobs:
       - name: Generate .config
         run: |
           rm -f .config
-          # ========== 先写 TARGET 配置（用 > 覆盖） ==========
           echo "CONFIG_TARGET_qualcommax=y" > .config
           echo "CONFIG_TARGET_qualcommax_ipq807x=y" >> .config
           echo "CONFIG_TARGET_MULTI_PROFILE=y" >> .config
           echo "CONFIG_TARGET_DEVICE_qualcommax_ipq807x_xiaomi_ax3600=y" >> .config
 
-          # NSS 全套核心驱动
+          # NSS全套核心驱动
           echo "CONFIG_PACKAGE_kmod-qca-nss-drv=y" >> .config
           echo "CONFIG_PACKAGE_kmod-qca-nss-ecm=y" >> .config
           echo "CONFIG_PACKAGE_kmod-qca-nss-dp=y" >> .config
@@ -80,7 +69,7 @@ jobs:
           echo "CONFIG_PACKAGE_kmod-qca-nss-drv-qdisc=y" >> .config
           echo "CONFIG_PACKAGE_kmod-qca-ssdk=y" >> .config
 
-          # WiFi ath11k
+          # WiFi ath11k 主Wi-Fi，源码自带ath10k用于AIoT天线
           echo "CONFIG_PACKAGE_kmod-ath11k=y" >> .config
           echo "CONFIG_PACKAGE_kmod-ath11k-ahb=y" >> .config
           echo "CONFIG_PACKAGE_ath11k-firmware-ipq8074=y" >> .config
@@ -128,21 +117,20 @@ jobs:
           echo "CONFIG_PACKAGE_luci-lib-xterm=y" >> .config
           echo "CONFIG_PACKAGE_luci-compat=y" >> .config
 
-          # 禁用 SFE
+          # 禁用SFE，使用NSS ECM
           echo "# CONFIG_PACKAGE_kmod-shortcut-fe is not set" >> .config
           echo "# CONFIG_PACKAGE_kmod-shortcut-fe-cm is not set" >> .config
 
-          # 最后才跑 defconfig 补全依赖
           make defconfig
 
-          # 二次强制关闭 SFE
+          # 二次强制关闭SFE，防止defconfig自动选中
           sed -i 's/CONFIG_PACKAGE_kmod-shortcut-fe=y/# CONFIG_PACKAGE_kmod-shortcut-fe is not set/g' .config
           sed -i 's/CONFIG_PACKAGE_kmod-shortcut-fe-cm=y/# CONFIG_PACKAGE_kmod-shortcut-fe-cm is not set/g' .config
 
       - name: Print key config verification
         run: |
           echo "===== 校验TARGET与NSS配置 ====="
-          grep -E "CONFIG_TARGET_DEVICE|kmod-qca-nss|shortcut-fe|luci-app-store" .config
+          grep -E "CONFIG_TARGET_DEVICE|kmod-qca-nss|shortcut-fe|kmod-ath11k" .config
 
       - name: Compile firmware
         run: make -j1 V=s
@@ -150,7 +138,7 @@ jobs:
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AX3600-Qosmio-main-nss-NSS-iStore
+          name: AX3600-Qosmio-2410-nss-BIGPART-NSS-iStore
           path: |
             bin/targets/qualcommax/ipq807x/openwrt-qualcommax-ipq807x-xiaomi_ax3600-squashfs-factory.ubi
             bin/targets/qualcommax/ipq807x/openwrt-qualcommax-ipq807x-xiaomi_ax3600-squashfs-sysupgrade.bin
