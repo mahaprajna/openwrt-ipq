@@ -46,7 +46,6 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      # ========== 关键：禁用 ECM bond 支持 ==========
       - name: Disable ECM bond support
         run: |
           cd feeds/nss_packages/qca-nss-ecm
@@ -59,7 +58,6 @@ jobs:
           echo "===== 修改后 ====="
           grep -n "ECM_INTERFACE_BOND_ENABLE" Makefile || true
           echo "✅ 已禁用 ECM bond 支持"
-      # ==========================================
 
       - name: Generate .config
         run: |
@@ -126,8 +124,10 @@ jobs:
           echo "# CONFIG_PACKAGE_kmod-shortcut-fe is not set" >> .config
           echo "# CONFIG_PACKAGE_kmod-shortcut-fe-cm is not set" >> .config
 
+          # 全部配置写完，最后执行一次defconfig补全依赖
           make defconfig
 
+          # 兜底再次关闭SFE
           sed -i 's/CONFIG_PACKAGE_kmod-shortcut-fe=y/# CONFIG_PACKAGE_kmod-shortcut-fe is not set/g' .config
           sed -i 's/CONFIG_PACKAGE_kmod-shortcut-fe-cm=y/# CONFIG_PACKAGE_kmod-shortcut-fe-cm is not set/g' .config
 
@@ -148,6 +148,6 @@ jobs:
         with:
           name: AX3600-Qosmio-2410-nss-BIGPART-NSS-iStore
           path: |
-            bin/targets/qualcommax/ipq807x/openwrt-qualcommax-ipq807x-xiaomi_ax3600-squashfs-factory.ubi
-            bin/targets/qualcommax/ipq807x/openwrt-qualcommax-ipq807x-xiaomi_ax3600-squashfs-sysupgrade.bin
+            bin/targets/qualcommax/ipq807x/*.ubi
+            bin/targets/qualcommax/ipq807x/*.bin
             build.log
