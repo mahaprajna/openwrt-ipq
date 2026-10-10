@@ -17,10 +17,9 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
         with:
-          ref: 24.10-nss
+          ref: ea7d6f0   # 回退到 2026-04-03，内核 6.6.128，补丁漂移最小
 
-      # 重要：不注入DTS、不修改ipq807x.mk、不删除bond补丁
-      # 源码内 xiaomi_ax3600 原生就是大分区目标(KERNEL_SIZE=36608k)
+      # 不要删除任何 bonding 补丁！不要注入 DTS！xiaomi_ax3600 原生就是大分区目标
 
       - name: Cache OpenWrt build
         uses: actions/cache@v4
@@ -56,7 +55,7 @@ jobs:
           echo "CONFIG_TARGET_MULTI_PROFILE=y" >> .config
           echo "CONFIG_TARGET_DEVICE_qualcommax_ipq807x_xiaomi_ax3600=y" >> .config
 
-          # NSS全套核心驱动
+          # NSS 全套核心驱动
           echo "CONFIG_PACKAGE_kmod-qca-nss-drv=y" >> .config
           echo "CONFIG_PACKAGE_kmod-qca-nss-ecm=y" >> .config
           echo "CONFIG_PACKAGE_kmod-qca-nss-dp=y" >> .config
@@ -69,7 +68,7 @@ jobs:
           echo "CONFIG_PACKAGE_kmod-qca-nss-drv-qdisc=y" >> .config
           echo "CONFIG_PACKAGE_kmod-qca-ssdk=y" >> .config
 
-          # WiFi ath11k 主Wi-Fi，源码自带ath10k用于AIoT天线
+          # WiFi ath11k 主 Wi-Fi，源码自带 ath10k 用于 AIoT 天线
           echo "CONFIG_PACKAGE_kmod-ath11k=y" >> .config
           echo "CONFIG_PACKAGE_kmod-ath11k-ahb=y" >> .config
           echo "CONFIG_PACKAGE_ath11k-firmware-ipq8074=y" >> .config
@@ -117,19 +116,19 @@ jobs:
           echo "CONFIG_PACKAGE_luci-lib-xterm=y" >> .config
           echo "CONFIG_PACKAGE_luci-compat=y" >> .config
 
-          # 禁用SFE，使用NSS ECM
+          # 禁用 SFE，使用 NSS ECM
           echo "# CONFIG_PACKAGE_kmod-shortcut-fe is not set" >> .config
           echo "# CONFIG_PACKAGE_kmod-shortcut-fe-cm is not set" >> .config
 
           make defconfig
 
-          # 二次强制关闭SFE，防止defconfig自动选中
+          # 二次强制关闭 SFE，防止 defconfig 自动选中
           sed -i 's/CONFIG_PACKAGE_kmod-shortcut-fe=y/# CONFIG_PACKAGE_kmod-shortcut-fe is not set/g' .config
           sed -i 's/CONFIG_PACKAGE_kmod-shortcut-fe-cm=y/# CONFIG_PACKAGE_kmod-shortcut-fe-cm is not set/g' .config
 
       - name: Print key config verification
         run: |
-          echo "===== 校验TARGET与NSS配置 ====="
+          echo "===== 校验 TARGET 与 NSS 配置 ====="
           grep -E "CONFIG_TARGET_DEVICE|kmod-qca-nss|shortcut-fe|kmod-ath11k" .config
 
       - name: Compile firmware
