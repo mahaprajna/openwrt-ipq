@@ -19,6 +19,19 @@ jobs:
         with:
           ref: 24.10-nss
 
+      # ========== 第一步：立即删除内核 bond 补丁 ==========
+      - name: Remove kernel bond patches
+        run: |
+          echo "===== 删除前 ====="
+          ls -l target/linux/qualcommax/patches-6.6/*bond* 2>/dev/null || true
+          rm -fv target/linux/qualcommax/patches-6.6/0600-3-qca-nss-ecm-support-net-bonding.patch
+          rm -fv target/linux/qualcommax/patches-6.6/0600-4-qca-nss-ecm-support-net-bonding-over-LAG-interface.patch
+          rm -fv target/linux/qualcommax/patches-6.6/*ecm-support-net-bonding*.patch
+          echo "===== 删除后 ====="
+          ls -l target/linux/qualcommax/patches-6.6/*bond* 2>/dev/null || true
+          echo "✅ 内核 bond 补丁已删除"
+      # ===================================================
+
       - name: Install dependency
         run: |
           sudo apt update
@@ -35,38 +48,22 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      # ========== 关键修正：同时处理 ECM 软件层 + 内核补丁层 ==========
-      - name: Fix ECM bond conflict (software + kernel patches)
+      # ========== 第二步：禁用 ECM 软件层 bond 支持 ==========
+      - name: Disable ECM bond support
         run: |
-          # 1. 禁用 ECM 软件层的 bond 支持
           ECM_MAKEFILE=feeds/nss_packages/qca-nss-ecm/Makefile
           if [ -f "$ECM_MAKEFILE" ]; then
-            echo "===== 修改前 ECM bond开关 ====="
+            echo "===== 修改前 ====="
             grep -n "ECM_INTERFACE_BOND_ENABLE" "$ECM_MAKEFILE" || true
             sed -i 's/ECM_INTERFACE_BOND_ENABLE[[:space:]]*[:?]\?=[[:space:]]*y/ECM_INTERFACE_BOND_ENABLE=n/g' "$ECM_MAKEFILE"
-            echo "===== 修改后 ECM bond开关 ====="
+            echo "===== 修改后 ====="
             grep -n "ECM_INTERFACE_BOND_ENABLE" "$ECM_MAKEFILE" || true
-            echo "✅ 已禁用 ECM bond 软件层支持"
+            echo "✅ 已禁用 ECM bond 支持"
           else
             echo "❌ 找不到 $ECM_MAKEFILE"
             exit 1
           fi
-
-          # 2. 删除内核层冲突的 bond 补丁（0600-3 和 0600-4）
-          for d in patches-6.1 patches-6.6 patches-6.12; do
-            if [ -d "target/linux/qualcommax/$d" ]; then
-              cd "target/linux/qualcommax/$d"
-              echo "===== 在 $d 中删除 bond 补丁 ====="
-              ls -l *bond* 2>/dev/null || true
-              rm -f 0600-3-qca-nss-ecm-support-netbonding.patch
-              rm -f 0600-4-qca-nss-ecm-support-net-bonding-over-LAG-interface.patch
-              rm -f *ecm-support-net-bonding*.patch
-              ls -l *bond* 2>/dev/null || true
-              cd - >/dev/null
-            fi
-          done
-          echo "✅ 已删除内核 bond 冲突补丁"
-      # =================================================================
+      # =====================================================
 
       - name: Generate .config
         run: |
