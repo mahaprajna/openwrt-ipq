@@ -1,4 +1,4 @@
-name: Build AX3600 Qosmio 24.10-nss BIGPART NSS+iStore
+name: Build AX3600 Qosmio 24.10-nss NSS+iStore
 on:
   workflow_dispatch:
 
@@ -19,45 +19,37 @@ jobs:
         with:
           ref: 24.10-nss
 
-      - name: Cache OpenWrt build
-        uses: actions/cache@v4
-        with:
-          path: |
-            dl
-            build_dir
-            staging_dir
-          key: qosmio-2410-nss-${{ hashFiles('feeds.conf.default') }}
-          restore-keys: |
-            qosmio-2410-nss-
-
-      - name: Add iStore feed source
-        run: |
-          sed -i '/istore/d' feeds.conf.default
-          echo 'src-git istore https://github.com/linkease/istore;main' >> feeds.conf.default
-          cat feeds.conf.default
-
-      - name: Install dependencies
+      - name: Install dependency
         run: |
           sudo apt update
-          sudo apt install -y build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses-dev libssl-dev python3 python3-pip python3-setuptools python3-dev rsync unzip wget zlib1g-dev
+          sudo apt install -y build-essential gcc g++ autoconf automake libtool flex bison gperf cmake libncurses5-dev git gettext unzip wget python3 python3-pip file rsync
 
-      - name: Update feeds & install feeds
+      - name: Add iStore feed
+        run: |
+          sed -i '/luci-app-store/d' feeds.conf.default
+          echo "src-git istore https://github.com/linkease/istore-packages.git;main" >> feeds.conf.default
+          cat feeds.conf.default
+
+      - name: Update & Install feeds
         run: |
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Disable ECM bond support
+      - name: Fix ECM bond compile conflict
         run: |
-          cd feeds/nss_packages/qca-nss-ecm
-          echo "===== 修改前 ====="
-          grep -n "ECM_INTERFACE_BOND_ENABLE" Makefile || true
-          sed -i 's/ECM_INTERFACE_BOND_ENABLE=y/ECM_INTERFACE_BOND_ENABLE=n/g' Makefile
-          sed -i 's/ECM_INTERFACE_BOND_ENABLE:=y/ECM_INTERFACE_BOND_ENABLE:=n/g' Makefile
-          sed -i 's/ECM_INTERFACE_BOND_ENABLE ?= y/ECM_INTERFACE_BOND_ENABLE ?= n/g' Makefile
-          sed -i 's/ECM_INTERFACE_BOND_ENABLE ?=y/ECM_INTERFACE_BOND_ENABLE ?=n/g' Makefile
-          echo "===== 修改后 ====="
-          grep -n "ECM_INTERFACE_BOND_ENABLE" Makefile || true
-          echo "✅ 已禁用 ECM bond 支持"
+          ECM_MAKEFILE=feeds/nss_packages/qca-nss-ecm/Makefile
+          if [ -f "$ECM_MAKEFILE" ]; then
+            echo "===== 修改前 ====="
+            grep -n "ECM_INTERFACE_BOND_ENABLE" "$ECM_MAKEFILE" || true
+            # 覆盖所有赋值写法：=y、:=y、?=y、?= y
+            sed -i 's/ECM_INTERFACE_BOND_ENABLE[[:space:]]*[:?]\?=[[:space:]]*y/ECM_INTERFACE_BOND_ENABLE=n/g' "$ECM_MAKEFILE"
+            echo "===== 修改后 ====="
+            grep -n "ECM_INTERFACE_BOND_ENABLE" "$ECM_MAKEFILE" || true
+            echo "✅ 已禁用 ECM bond 支持"
+          else
+            echo "❌ 找不到 $ECM_MAKEFILE"
+            exit 1
+          fi
 
       - name: Generate .config
         run: |
@@ -124,26 +116,28 @@ jobs:
           echo "# CONFIG_PACKAGE_kmod-shortcut-fe is not set" >> .config
           echo "# CONFIG_PACKAGE_kmod-shortcut-fe-cm is not set" >> .config
 
-          # 全部配置写完，最后执行一次defconfig补全依赖
           make defconfig
 
-          # 兜底再次关闭SFE
+          # 兜底：如果 defconfig 把设备目标清掉，重新加上
+          sed -i 's/.*CONFIG_TARGET_DEVICE_qualcommax_ipq807x_xiaomi_ax3600.*/CONFIG_TARGET_DEVICE_qualcommax_ipq807x_xiaomi_ax3600=y/' .config
           sed -i 's/CONFIG_PACKAGE_kmod-shortcut-fe=y/# CONFIG_PACKAGE_kmod-shortcut-fe is not set/g' .config
           sed -i 's/CONFIG_PACKAGE_kmod-shortcut-fe-cm=y/# CONFIG_PACKAGE_kmod-shortcut-fe-cm is not set/g' .config
 
       - name: Print key config verification
         run: |
-          echo "===== 校验 TARGET 与 NSS 配置 ====="
-          grep -E "CONFIG_TARGET_DEVICE|kmod-qca-nss|shortcut-fe|kmod-ath11k" .config
+          echo "===== TARGET 与 NSS 校验 ====="
+          grep -E "CONFIG_TARGET_DEVICE_qualcommax_ipq807x_xiaomi_ax3600|kmod-qca-nss|shortcut-fe" .config
 
-      - name: Compile firmware
-        run: make -j2 V=s 2>&1 | tee build.log
+      - name: Build firmware
+        run: |
+          set -o pipefail
+          make -j2 V=s 2>&1 | tee build.log
 
       - name: Print firmware file size
         run: |
-          ls -lh bin/targets/qualcommax/ipq807x/
+          ls -lh bin/targets/qualcommax/ipq807x/ || true
 
-      - name: Upload firmware artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: AX3600-Qosmio-2410-nss-BIGPART-NSS-iStore
